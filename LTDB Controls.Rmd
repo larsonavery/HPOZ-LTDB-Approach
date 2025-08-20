@@ -1,0 +1,137 @@
+---
+title: "LTDB Controls"
+output: html_document
+date: "2025-08-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+tracts <- read_csv("d_in_d_Aug18_LTDB.csv")
+```
+```{r}
+tracts <- tracts |>
+  select(TRACTCE10, GEOID10, NAME10, NAME, cc_hpoz_approval_treatment, pre_untreated, pre_treated, post_untreated, post_treated)
+```
+
+Load in Controls
+```{r}
+teens_controls <- read_csv("LTDB_controls/LTDB_2018.csv")
+```
+
+```{r}
+tens_controls <- read_csv("LTDB_controls/LTDB_2010.csv")
+```
+
+```{r}
+oughts_controls <- read_csv("LTDB_controls/LTDB_2000.csv")
+```
+```{r}
+nineties_controls <- read_csv("LTDB_controls/LTDB_STD_1990.csv")
+```
+```{r}
+county <- read_csv("LTDB_controls/LTDB_1990_county.csv")
+```
+
+Join Data
+
+Selecting 1990s demographic data, no data for household income or college education
+```{r}
+nineties_controls <- nineties_controls |>
+  select(TRTID10, state, county, tract, POP90, NHWHT90, OWN90)
+```
+
+
+Selecting 2000s demographic data, no data for household income or college education
+```{r}
+oughts_controls <- oughts_controls |>
+  select(TRACTID10, state, county, tract, POP00, NHWHT00, OWN00)
+```
+
+
+
+
+Selecting 2010s demographic data
+```{r}
+tens_controls <- tens_controls |>
+  select(tractid, tracta, countya, pnhwht12, pcol12, hinc12, pown12)
+```
+
+
+Selecting 2019 data
+```{r}
+teens_controls <- teens_controls |>
+  select(tractid, tracta, countya, statea, pnhwht19, pcol19, hinc19, pown19)
+```
+
+Standardize tract ID names
+```{r}
+oughts_controls <- oughts_controls |>
+  rename(tractid = TRACTID10)
+```
+
+```{r}
+nineties_controls <- nineties_controls |>
+  rename(tractid = TRTID10)
+```
+
+Adding leading 0 to 1990 and 2000 tract ids to match with LA format
+```{r}
+oughts_controls <- oughts_controls |>
+  mutate(tractid = paste0("0", tractid))
+```
+
+```{r}
+nineties_controls <- nineties_controls |>
+  mutate(tractid = paste0("0", tractid))
+```
+
+
+
+```{r}
+nineties_controls <- nineties_controls %>% mutate(tractid = as.character(tractid))
+oughts_controls <- oughts_controls %>% mutate(tractid = as.character(tractid))
+tens_controls <- tens_controls %>% mutate(tractid = as.character(tractid))
+teens_controls <- teens_controls %>% mutate(tractid = as.character(tractid))
+```
+
+
+```{r}
+total_controls <- teens_controls |>
+  inner_join(tens_controls, by = "tractid") |>
+  inner_join(oughts_controls, by = "tractid") |>
+  inner_join(nineties_controls, by = "tractid")
+```
+
+```{r}
+lacounty <- total_controls |>
+  filter(countya.y == "Los Angeles County")
+```
+
+```{r}
+lacounty <- lacounty |>
+  mutate(pnhwhite90 = (NHWHT90/POP90)*100) |>
+  mutate(pown90 = (OWN90/POP90)*100)
+```
+
+
+Deselecting duplicate identifier variables
+```{r}
+lacounty <- lacounty |>
+  select(
+    -tracta.y, -tract.y, -tracta.x,
+    -countya.y,  -county.y, countya.x
+         )
+```
+
+
+
+

@@ -1,0 +1,63 @@
+---
+title: "Combining permit data"
+output: html_document
+date: "2025-06-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+library(tidyverse)
+```
+loading three datasets
+```{r}
+permit1 <- read_csv("96.csv")
+permit2 <- read_csv("2010.csv")
+permit3 <- read_csv("2020.csv")
+```
+
+Change Census Tract Info in Post-2020 from double to character to match earlier datasets
+```{r}
+permit3 <- permit3 |>
+  mutate(CT = as.character(CT))
+```
+
+
+
+Bind all three together
+```{r}
+megapermit <- bind_rows(permit1, permit2, permit3)
+```
+
+```{r}
+megapermit |>
+  distinct(`PERMIT_TYPE`)
+```
+
+
+New construction or ADU additions only
+```{r}
+megapermit <- megapermit |> 
+  filter(
+    PERMIT_TYPE == "Bldg-New" |
+    PERMIT_TYPE == "Bldg-Addition" &
+    USE_DESC == "Accessory Dwelling Unit"
+  )
+```
+
+
+Filtering out projects that neither increase nor reduce # of new units
+```{r}
+megapermit <- megapermit |>
+  filter(DU_CHANGED != 0)
+```
+
+
+
+
+

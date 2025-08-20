@@ -1,0 +1,295 @@
+---
+title: "LTDB Tracts"
+output: html_document
+date: "2025-08-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+```{r}
+
+library(leaflet)
+library(sf)
+library(mapview)
+library(leaflet.extras)
+library(tidyverse)
+library(dplyr)
+library(RColorBrewer)
+```
+
+
+Reading permit data
+```{r}
+megapermit <- read_csv("permitdatajun17")
+```
+
+Drop na of Long/Lat for Permit Data
+```{r}
+megapermit <- megapermit |>
+  drop_na(LAT) |>
+  drop_na(LON)
+```
+
+# Convert to permits to sf object
+```{r}
+megapermit_sf <- st_as_sf(megapermit, coords = c("LON", "LAT"), crs = 4326)
+```
+
+#Read in HPOZ sf
+```{r}
+hpoz_shp <- st_read("HPOZ/Historic_Preservation_Overlay_Zones.shp")
+```
+#Read in HPOZ founding dates
+```{r}
+hpoz_dates <- read_csv("hpoz_dates.csv")
+```
+
+#Join founding dates to hpoz shapefile
+```{r}
+hpoz_shp <- hpoz_shp |>
+inner_join(hpoz_dates)
+```
+
+#Converting HPOZ to correct map projection
+```{r message=FALSE, warning=FALSE}
+hpoz_shp <- st_transform(hpoz_shp, crs = 4326)
+```
+
+The Highland Park HPOZ was founded in 1994 and thus cannot be included in a difference-in-difference analysis. However, it expanded to a non-contiguous area in the Garvanza neighborhood in 2010.These chunks seperate out Garvanza so it can be included in the analysis
+
+# Extract just the Highland Park - Garvanza polygon
+```{r}
+garvanza <- hpoz_shp |>
+  filter(NAME == "Highland Park - Garvanza")
+```
+
+```{r}
+garvanza_parts <- garvanza |>
+  st_cast("POLYGON") |>
+  mutate(part_id = row_number())
+```
+```{r}
+garvanza_selected <- garvanza_parts |>
+  filter(part_id == 2)
+```
+
+```{r}
+# Drop the original multi-part entry
+hpoz_shp_cleaned <- hpoz_shp |>
+  filter(NAME != "Highland Park - Garvanza")
+
+# Add back the revised single-part version
+garvanza_selected <- garvanza_selected |>
+  select(-part_id)  # drop helper column
+
+hpoz_shp <- bind_rows(hpoz_shp_cleaned, garvanza_selected)
+```
+
+
+#load in LTDB CA census tracts
+```{r}
+ltdb_tracts <- st_read("LTDB_Tiger/tl_2010_06_tract10.shp")
+```
+#Converting Census Tracts to correct projection
+```{r}
+ltdb_tracts <- st_transform(ltdb_tracts, crs = 4326)
+```
+
+#Filter to LA County Tracts
+```{r}
+ltdb_tracts <- ltdb_tracts |>
+filter(COUNTYFP10 == "037")
+```
+
+
+##Get Census tract data into permit dataset
+
+#Binary of whether Census Tract includes HPOZ
+```{r}
+ltdb_tracts <- ltdb_tracts |>
+  mutate(hpoz_present = lengths(st_intersects(geometry, hpoz_shp)) > 0)
+```
+
+##Create variable in `ltdb_tracts` that determines which HPOZ is in Census Tract
+```{r}
+census_hpoz <- st_join(ltdb_tracts, hpoz_shp, left = TRUE, join = st_intersects)
+```
+
+Filter out Census tracts that don't have an HPOZ zone in them
+```{r}
+census_hpoz <- census_hpoz |>
+  filter(hpoz_present == "TRUE")
+```
+
+Filter out tracts that include multiple HPOZs
+```{r}
+# Count how many unique hpoz_shp polygons each tract overlaps with
+census_hpoz <- census_hpoz |>
+  group_by(GEOID10) |>  
+  mutate(hpoz_count = n_distinct(OBJECTID)) |> 
+  ungroup() |>
+  filter(hpoz_count == 1)  # keep only tracts with exactly one overlap
+```
+
+
+Remove time of day on `ISSUE_DATE` in permit data. Convert to standard date format
+```{r}
+megapermit_sf <- megapermit_sf |>
+  mutate(SUBMITTED_DATE = gsub(" 12:00:00 AM", "", SUBMITTED_DATE),
+         SUBMITTED_DATE = as.Date(SUBMITTED_DATE, format = "%m/%d/%Y"))
+```
+
+Convert `census_hpoz` HPOZ before and after treatment date to standard date format
+```{r}
+census_hpoz <- census_hpoz |>
+  mutate(city_council = as.Date(city_council, format = "%m/%d/%Y"))
+```
+
+
+
+
+
+Create variables determining if permits are inside `census_hpoz` tracts and HPOZ zones
+```{r}
+# 1. Check if points are inside a census tract
+megapermit_sf <- megapermit_sf %>%
+  mutate(in_tract = lengths(st_within(., census_hpoz)) > 0)
+
+# 2. Check if points are inside an HPOZ polygon (only if in_tract is TRUE)
+megapermit_sf <- megapermit_sf %>%
+  mutate(in_zone = ifelse(in_tract, lengths(st_within(., hpoz_shp)) > 0, FALSE))
+```
+
+Filtering out permits not in `census_hpoz` tracts
+```{r}
+megapermit_sf <- megapermit_sf |>
+  filter(in_tract == "TRUE")
+```
+
+
+#Get rid of projects where permit and Certificate of Occupancy were not approved
+```{r}
+megapermit_sf <- megapermit_sf |>
+  filter(!(is.na(ISSUE_DATE) & is.na(COFO_DATE)))
+```
+
+Filter out expired permits
+```{r}
+megapermit_sf <- megapermit_sf |>
+  filter(STATUS_DESC != "Permit Expired")
+```
+
+Get rid of duplicate rows
+```{r}
+megapermit_sf <- megapermit_sf |>
+  distinct()
+```
+
+Spatially Join Permits to Tracts and HPOZs
+```{r}
+permits_with_tract <- st_join(megapermit_sf, census_hpoz, join = st_within, left = FALSE)
+```
+
+# Classify permits using pre and post, treated and untreated
+```{r}
+permits_with_tract <- permits_with_tract |>
+  mutate(
+    post = SUBMITTED_DATE >= city_council,
+    treated = in_zone == "TRUE",
+    DU_CHANGED = as.numeric(DU_CHANGED),
+    tract_id = GEOID10, 
+    pre_untreated = if_else(!post & !treated, DU_CHANGED, 0),
+    pre_treated   = if_else(!post &  treated, DU_CHANGED, 0),
+    post_untreated = if_else( post & !treated, DU_CHANGED, 0),
+    post_treated   = if_else( post &  treated, DU_CHANGED, 0)
+  )
+```
+
+Summarize unit numbers treated v. untreated and pre v. post by tract
+```{r}
+du_sums_fixed <- permits_with_tract |>
+  group_by(tract_id) |>
+  summarize(
+    pre_untreated = sum(pre_untreated, na.rm = TRUE),
+    pre_treated = sum(pre_treated, na.rm = TRUE),
+    post_untreated = sum(post_untreated, na.rm = TRUE),
+    post_treated = sum(post_treated, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+
+# Remove geometry column from `du_sums_fixed`
+```{r}
+du_sums_fixed <- du_sums_fixed |> st_drop_geometry()
+```
+
+
+Join all data back into `census_hpoz`
+```{r}
+census_hpoz <- census_hpoz |>
+  left_join(du_sums_fixed, by = c("GEOID10" = "tract_id")) |>
+  mutate(across(
+    c(pre_untreated, pre_treated, post_untreated, post_treated),
+    ~ replace_na(., 0)
+  ))
+```
+
+
+Removing duplicate tracts
+```{r}
+census_hpoz <- census_hpoz |>
+  distinct()
+```
+
+
+#Renaming treatment (City Council Approval of an HPOZ District) to be clearer
+```{r}
+census_hpoz <- rename(census_hpoz, cc_hpoz_approval_treatment = city_council)
+```
+
+# Filter to tracts that have HPOZs that were approved after Jan 9, 1995
+```{r}
+census_hpoz <- census_hpoz |>
+  filter(
+    cc_hpoz_approval_treatment > as.Date("1995-01-09")
+  )
+```
+
+```{r}
+leaflet(data = census_hpoz) |>
+  addProviderTiles("CartoDB.Positron") |>
+  addPolygons(data = census_hpoz,
+              fillOpacity = 0.0,
+              color = "black",
+              weight = 1.5
+              ) |>
+  addProviderTiles("CartoDB.Positron") |>
+  addPolygons(data = hpoz_shp,
+              fillOpacity = 0.5,
+              color = "green",
+              weight = 1.5
+              ) |>
+  addCircleMarkers(data = megapermit_sf,
+    radius = 2,
+    color= "black",
+    fillOpacity = 0.8,
+    stroke = FALSE,
+    label = megapermit_sf$PRIMARY_ADDRESS
+  )
+```
+
+#Dropping geometry and exporting
+```{r}
+census_hpoz |>
+  st_drop_geometry() |>
+   write_csv("d_in_d_Aug8_LTDB.csv")
+```
+
+
+
+
+

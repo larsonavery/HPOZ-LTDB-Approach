@@ -1,0 +1,104 @@
+---
+title: "Crosswalk"
+output: html_document
+date: "2025-08-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+controls <- read_csv("crosswalk/nhgis_controls.csv")
+```
+```{r}
+controls <- controls |>
+  select(NHGISCODE, GJOIN1990, GJOIN2000, GJOIN2012, GJOIN2022, 
+         COUNTY, NAME1990, NAME2000, NAME2012, NAME2022,
+         AV0AA1990, AV0AA2000, AV0AA125, AV0AA225, #total pop
+         CV4AA1990, CV4AA2000, CV4AA125, CV4AA225, #white
+         B69AC1990, B69AC2000, B69AC125, B69AC225, #bachelors
+         B69AA1990, B69AA2000, B69AA125, B69AA225, #below 9th grade
+         B69AB1990, B69AB2000, B69AB125, B69AB225, #between 9th grade and 3 years college
+         BD5AA1990, BD5AA2000, BD5AA125, BD5AA225) #income, not inflation adjusted
+```
+
+
+```{r}
+controls <- controls |>
+  filter(COUNTY == "Los Angeles County")
+```
+
+Creating prop_white variables
+```{r}
+controls <- controls |>
+  mutate(
+    prop_white_1990 = as.numeric(CV4AA1990) / as.numeric(AV0AA1990),
+    prop_white_2000 = as.numeric(CV4AA2000) / as.numeric(AV0AA2000),
+    prop_white_2012 = as.numeric(CV4AA125) / as.numeric(AV0AA125),
+    prop_white_2022 = as.numeric(CV4AA225) / as.numeric(AV0AA225),
+  )
+```
+
+Creating prop_bach variables
+```{r}
+controls <- controls|>
+  mutate(
+  prop_bach_1990 = as.numeric(B69AC1990) / (as.numeric(B69AC1990) + as.numeric(B69AB1990) + as.numeric(B69AA1990)),
+  prop_bach_2000 = as.numeric(B69AC2000) / (as.numeric(B69AC2000) + as.numeric(B69AB2000) + as.numeric(B69AA2000)),
+  prop_bach_2012 = as.numeric(B69AC125) / (as.numeric(B69AC125) + as.numeric(B69AB125) + as.numeric(B69AA125)),
+  prop_bach_2022 = as.numeric(B69AC225) / (as.numeric(B69AC225) + as.numeric(B69AB225) + as.numeric(B69AA225))
+  )                                       
+```
+
+Renaming income variables
+```{r}
+controls <- controls |>
+  rename(
+    income_1990 = BD5AA1990,
+    income_2000 = BD5AA2000,
+    income_2012 = BD5AA125,
+    income_2022 = BD5AA225
+    )
+```
+
+Selecting relevant variables
+```{r}
+controls <- controls |>
+  select(
+    NHGISCODE, GJOIN1990, GJOIN2000, GJOIN2012, GJOIN2022, 
+    COUNTY, NAME1990, NAME2000, NAME2012, NAME2022,
+    prop_white_1990, prop_white_2000, prop_white_2012, prop_white_2022,
+    prop_bach_1990, prop_bach_2000, prop_bach_2012, prop_bach_2022,
+    income_1990, income_2000, income_2012, income_2022
+  )
+```
+
+Drop tracts that didn't exist in 2022
+```{r}
+controls <- controls |>
+drop_na(GJOIN2022)
+```
+
+Adjust for incomes for inflation
+```{r}
+test <- controls |>
+  mutate(
+    income_1990 = as.numeric(income_1990)*2.2068,
+    income_2000 = as.numeric(income_2000)*1.6656, 
+    income_2012 = as.numeric(income_2012)*1.2975 #inflation from 2010 
+  )
+```
+
+```{r}
+test |>
+  summarize(mean_1990 = mean(income_1990, na.rm = TRUE),
+            mean_2000 = mean(income_2000, na.rm = TRUE),
+            mean_2012= mean(income_2012, na.rm = TRUE),
+            mean_2022 = mean(income_2022, na.rm = TRUE))
+```
+
