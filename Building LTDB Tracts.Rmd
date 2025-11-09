@@ -23,7 +23,7 @@ library(RColorBrewer)
 
 Reading permit data
 ```{r}
-megapermit <- read_csv("permitdatajun17")
+megapermit <- read_csv("permitdatajun17.csv")
 ```
 
 Drop na of Long/Lat for Permit Data
@@ -71,6 +71,7 @@ garvanza_parts <- garvanza |>
   st_cast("POLYGON") |>
   mutate(part_id = row_number())
 ```
+
 ```{r}
 garvanza_selected <- garvanza_parts |>
   filter(part_id == 2)
@@ -268,17 +269,17 @@ leaflet(data = census_hpoz) |>
               weight = 1.5
               ) |>
   addProviderTiles("CartoDB.Positron") |>
-  addPolygons(data = hpoz_shp,
+  addPolygons(data = hpoz_shp_cleaned,
               fillOpacity = 0.5,
               color = "green",
-              weight = 1.5
+              weight = 1.5,
+              label = hpoz_shp_cleaned$NAME
               ) |>
   addCircleMarkers(data = megapermit_sf,
     radius = 2,
     color= "black",
     fillOpacity = 0.8,
-    stroke = FALSE,
-    label = megapermit_sf$PRIMARY_ADDRESS
+    stroke = FALSE
   )
 ```
 
