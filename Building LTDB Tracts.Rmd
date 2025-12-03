@@ -261,6 +261,25 @@ census_hpoz <- census_hpoz |>
 ```
 
 ```{r}
+colortest_hpoz <- census_hpoz |>
+  filter(Shape__Are > "5366817")
+    
+```
+
+
+
+```{r}
+leaflet(data = census_hpoz) |>
+  addPolygons(data = colortest_hpoz,
+              fillOpacity = 1,
+              fillColor = "#d21217",
+              color = "black",
+              weight = 1.5
+              )
+```
+
+
+```{r}
 leaflet(data = census_hpoz) |>
   addProviderTiles("CartoDB.Positron") |>
   addPolygons(data = census_hpoz,
@@ -276,11 +295,22 @@ leaflet(data = census_hpoz) |>
               label = hpoz_shp_cleaned$NAME
               ) |>
   addCircleMarkers(data = megapermit_sf,
-    radius = 2,
+    radius = 3,
     color= "black",
     fillOpacity = 0.8,
     stroke = FALSE
   )
+```
+
+```{r}
+leaflet(data = hpoz_shp_cleaned) |>
+  addProviderTiles("CartoDB.Positron") |>
+addPolygons(data = hpoz_shp_cleaned,
+              fillOpacity = 0.5,
+              color = "green",
+              weight = 1.5,
+              label = hpoz_shp_cleaned$NAME
+              ) 
 ```
 
 #Dropping geometry and exporting
